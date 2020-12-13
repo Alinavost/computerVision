@@ -9,6 +9,15 @@ import pandas as pd
 
 
 def pickle_caltech101_images(data_path, pickle_path):
+    """ Saves images and labels in pickle file for quick loading
+
+        loads the images
+        iterates over the requested folders and the images in each folder
+        saves them to a dictionary
+        pickles the dictionary
+
+        """
+
     print("starting pickling")
 
     # region variables and constants
@@ -64,40 +73,40 @@ def load_data(pickle_path):
 
 
 def create_sets(data_dict):
-    trainSetDict = {}
-    testSetDict = {}
-    split_dict = {}
-    i = 0
-    X_train = []
-    X_test = []
-    y_train = []
-    y_test = []
+    """ Splits the data from the dictionary to train sets and test sets
+
+        each class has between 32 and 50 images
+        the train set and test set are each half of the total number of images
+        returns a dictionary of the split data sets
+
+        """
+
     images = []
     labelsss = []
-    sizesss = []
+
     for picClass in data_dict.values():
-        # picClass is a touple (data, labels)
-        data = picClass[0]
-        labels = picClass[1]
-        N = data.shape[0]
+        # picClass is a tuple (data, labels)
+        data = picClass[0] # array of pictures with dimensions [N, SIZE, SIZE]
+        labels = picClass[1] # array with dimensions [N, 1]
+        N = data.shape[0] # depends on number of pictures in class, number between [32, 50]
 
         # print(f"Class pictures array size: {data.shape},\tclass label array size: {labels.shape}")
         tst_size = int(0.5 * N)  # this always outputs half of N, rounded down TODO: to put it outside the loop. it's override the N again and again.
-        print(f"Total class pictures: {N}\n\tTraining: {N - tst_size}\n\tTest: {tst_size}\n")
+        # print(f"Total class pictures: {N}\n\tTraining: {N - tst_size}\n\tTest: {tst_size}\n")
         images.append(data)
         labelsss.append(labels)
-        # split_dict = {"Train": {'Data': X_train, 'Labels': y_train}, "Test": {'Data': X_test, 'Labels': y_test}}
-        i += 1
+
         # for pic in X_train:
         #     cv2.imshow("pic", pic)
         #     cv2.waitKey(0)
-    X_train, X_test, y_train, y_test = train_test_split(images, labelsss, test_size=0.2, shuffle=False)
+
+    X_train, X_test, y_train, y_test = train_test_split(images, labelsss, test_size=tst_size, shuffle=False)
     split_dict = {"Train": {'Data': X_train, 'Labels': y_train}, "Test": {'Data': X_test, 'Labels': y_test}}
 
     return split_dict
 
 
-def GetDefaultParameters():  # too add more parameters
+def GetDefaultParameters():  # to add more parameters
     class_indices = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     image_size = (150, 150)
     split = 0.2
@@ -122,8 +131,8 @@ def train_kmeans(data, params):
         step_size = params['step_size']  # use the step size as defined in params
         kp = [cv2.KeyPoint(x, y, step_size) for y in range(0, img.shape[0], step_size) for x in
               range(0, img.shape[1], step_size)]  # compute key points
-        points, sifts = sift.compute(img, kp)  # computing the sifsts from the keypoints.
-        sift_vec.append(sifts)  # sift_vec: array of all the sifsts.
+        points, sifts = sift.compute(img, kp)  # computing the sifts from the keypoints.
+        sift_vec.append(sifts)  # sift_vec: array of all the sifts.
 
     # transfer the list to np.array
     all_sifts_array = list(sift_vec[0])
@@ -156,8 +165,10 @@ def prepare(kmeans, data, params):
 
 
 if __name__ == '__main__':
-    data_path = r"C:\Users\Alina\OneDrive\Desktop\Studies\Learning, representation, and Computer Vision\Homework\Task 1\101_ObjectCategories"
-    pickle_file_path = r'C:\Users\Alina\PycharmProjects\CVCourseT1\data.pkl'
+    # data_path = r"C:\Users\Alina\OneDrive\Desktop\Studies\Learning, representation, and Computer Vision\Homework\Task 1\101_ObjectCategories"
+    # pickle_file_path = r'C:\Users\Alina\PycharmProjects\CVCourseT1\data.pkl'
+    data_path = r"C:\Users\razdo\Documents\_Dor\Second Degree documents\Courses\Semester 1\Learning, representation, and Computer Vision\Homework\Task 1 misc\101_ObjectCategories"
+    pickle_file_path = r"C:\Users\razdo\Documents\_Dor\Second Degree documents\Courses\Semester 1\Learning, representation, and Computer Vision\Homework\Task 1 misc"
 
     # pickle_caltech101_images(data_path, pickle_file_path)
 
@@ -167,8 +178,8 @@ if __name__ == '__main__':
 
     params = GetDefaultParameters()
 
-    kmeans_model = train_kmeans(splitdict['Train']['Data'], params)
-
-    TrainDataRep = prepare(kmeans_model, splitdict['Train']['Data'], params)
+    # kmeans_model = train_kmeans(splitdict['Train']['Data'], params)
+    #
+    # TrainDataRep = prepare(kmeans_model, splitdict['Train']['Data'], params)
 
 
