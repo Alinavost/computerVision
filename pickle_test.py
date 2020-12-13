@@ -125,6 +125,8 @@ def GetDefaultParameters():  # to add more parameters
 
 
 def train_kmeans(data, params):
+    print('Begin Kmeans training')
+
     sift_vec = []  # define a list of sift
     for img in data:
         sift = cv2.xfeatures2d.SIFT_create()  # Creating Sifts
@@ -168,7 +170,7 @@ if __name__ == '__main__':
     # data_path = r"C:\Users\Alina\OneDrive\Desktop\Studies\Learning, representation, and Computer Vision\Homework\Task 1\101_ObjectCategories"
     # pickle_file_path = r'C:\Users\Alina\PycharmProjects\CVCourseT1\data.pkl'
     data_path = r"C:\Users\razdo\Documents\_Dor\Second Degree documents\Courses\Semester 1\Learning, representation, and Computer Vision\Homework\Task 1 misc\101_ObjectCategories"
-    pickle_file_path = r"C:\Users\razdo\Documents\_Dor\Second Degree documents\Courses\Semester 1\Learning, representation, and Computer Vision\Homework\Task 1 misc"
+    pickle_file_path = r"C:\Users\razdo\Documents\_Dor\Second Degree documents\Courses\Semester 1\Learning, representation, and Computer Vision\Homework\Task 1 misc\data.pkl"
 
     # pickle_caltech101_images(data_path, pickle_file_path)
 
@@ -178,8 +180,8 @@ if __name__ == '__main__':
 
     params = GetDefaultParameters()
 
-    # kmeans_model = train_kmeans(splitdict['Train']['Data'], params)
-    #
+    kmeans_model = train_kmeans(splitdict['Train']['Data'], params)
+
     # TrainDataRep = prepare(kmeans_model, splitdict['Train']['Data'], params)
 
 
