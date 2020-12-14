@@ -16,7 +16,7 @@ def GetDefaultParameters():  # to add more parameters
 
     class_indices = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     image_size = (150, 150)
-    split = 0.2
+    split_ratio = 0.2
     clusters = 40
     svm_c = 200
     degree = 3
@@ -25,14 +25,12 @@ def GetDefaultParameters():  # to add more parameters
     step_size = 6
     bins = clusters
     validate = False
-    parameters = {"Data": {'CalTechData': data_path, 'PickleData': pickle_file_path},
-                  "Prepare": {1},
+
+    parameters = {"Data": {'CalTechData': data_path, 'PickleData': pickle_file_path, "image_size": image_size},
+                  "Prepare": {"step_size": step_size, "bins": bins},
                   "Train": {"step_size": step_size, "clusters": clusters},
-                  "Split": split,
-                  "class_indices": class_indices,
+                  "Split": {'split_ratio': split_ratio, 'class_indices': class_indices},
                   "validate": validate,
-                  "image_size": image_size,
-                  "bins": bins,
                   "svm_c": svm_c,
                   "kernel": kernel,
                   "gamma": gamma,
@@ -56,11 +54,12 @@ def pickle_caltech101_images(dataParams):
     # region variables and constants
     data_path = dataParams['CalTechData']
     pickle_path = dataParams['PickleData']
+    SIZE = dataParams['image_size'] # new size
+
     top_folder = os.listdir(data_path)
 
     picnum = 0
     N = 50
-    SIZE = 250  # new size
     data = []  # should be SIZE x SIZE x picnum
     labels = []
     dataDict = {"Data": {}, "Labels": {}}  # should be 101 X SIZE x SIZE x picnum
@@ -119,37 +118,41 @@ def TrainTestSplit(dataDict, labelDict, splitParams):
         returns a dictionary of the split data sets
 
         """
+    split_ratio = splitParams['split_ratio']
+    class_indices = splitParams['class_indices']
+
     images_list = []
     labels_list = []
 
     for classNum in dataDict.keys(): #iterates over all classes [1,101]
-        data = dataDict[classNum] # array of pictures with dimensions [N, SIZE, SIZE]
-        labels = labelDict[classNum] # array with dimensions [N, 1]
-        N = data.shape[0]  # depends on number of pictures in class, number between [32, 50]
+        if classNum in class_indices:
+            data = dataDict[classNum] # array of pictures with dimensions [N, SIZE, SIZE]
+            labels = labelDict[classNum] # array with dimensions [N, 1]
+            N = data.shape[0]  # depends on number of pictures in class, number between [32, 50]
 
-        # print(f"Class pictures array size: {data.shape},\tclass label array size: {labels.shape}")
-        tst_size = int(0.5 * N)  # this always outputs half of N, rounded down TODO: to put it outside the loop. it's override the N again and again.
-        # print(f"Total class pictures: {N}\n\tTraining: {N - tst_size}\n\tTest: {tst_size}\n")
+            # print(f"Class pictures array size: {data.shape},\tclass label array size: {labels.shape}")
+            tst_size = int(0.5 * N)  # this always outputs half of N, rounded down TODO: to put it outside the loop. it's override the N again and again.
+            # print(f"Total class pictures: {N}\n\tTraining: {N - tst_size}\n\tTest: {tst_size}\n")
 
-        images_list.append(data)
-        labels_list.append(labels)
+            images_list.append(data)
+            labels_list.append(labels)
 
-    X_train, X_test, y_train, y_test = train_test_split(images_list, labels_list, test_size=tst_size, shuffle=False)
+    X_train, X_test, y_train, y_test = train_test_split(images_list, labels_list, test_size=split_ratio, shuffle=False)
     split_dict = {"Train": {'Data': X_train, 'Labels': y_train}, "Test": {'Data': X_test, 'Labels': y_test}}
 
     return split_dict
 
 
-def prepare(kmeans, data, params):
+def prepare(kmeans, data, prepareParams):
     histograms_vector = []  # defining a vector
     for img in data:
         sift = cv2.xfeatures2d.SIFT_create()  # creating sifts
-        step_size = params['step_size']  # Taking the step size from the params
+        step_size = prepareParams['step_size']  # Taking the step size from the params
         kp = [cv2.KeyPoint(x, y, step_size) for y in range(0, img.shape[0], step_size) for x in
               range(0, img.shape[1], step_size)]  # computing keypoints
         points, sifts = sift.compute(img, kp)  # computing sifts from key points
         img_predicts = kmeans.predict(sifts)  # computing k-means predictions for the computed sifts
-        img_hist, bin_size = np.histogram(img_predicts, bins=params['bins'])  # histograms for each sift bins parameter.
+        img_hist, bin_size = np.histogram(img_predicts, bins=prepareParams['bins'])  # histograms for each sift bins parameter.
         normalized_hist = img_hist / sum(img_hist)
         histograms_vector.append(normalized_hist)  # add the histogram to histograms vector
 
@@ -181,8 +184,6 @@ def train_kmeans(data, trainParams):
     return kmeans
 
 
-
-
 if __name__ == '__main__':
 
     Params = GetDefaultParameters()
@@ -195,9 +196,10 @@ if __name__ == '__main__':
 
     SplitData = TrainTestSplit(DandL["Data"], DandL["Labels"], Params["Split"])
 
-    # TrainDataRep = prepare(SplitData["Train"]['Data'], Params["Prepare"])
+    kmeans_model = train_kmeans(SplitData["Train"]['Data'], Params["Train"])
 
-    # kmeans_model = train_kmeans(SplitData["Train"]['Data'], Params["Train"])
+    TrainDataRep = prepare(kmeans_model, SplitData["Train"]['Data'], Params["Prepare"])
+
 
 
 
