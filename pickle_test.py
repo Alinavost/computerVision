@@ -54,7 +54,7 @@ def pickle_caltech101_images(dataParams):
     # region variables and constants
     data_path = dataParams['CalTechData']
     pickle_path = dataParams['PickleData']
-    SIZE = dataParams['image_size'] # new size
+    dsize = dataParams['image_size'] # new size
 
     top_folder = os.listdir(data_path)
 
@@ -73,7 +73,6 @@ def pickle_caltech101_images(dataParams):
             image = cv2.imread(os.path.join(dir_path, pic))
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-            dsize = (SIZE, SIZE)
             image_resized = cv2.resize(gray, dsize)
             data.append(image_resized)
             labels.append(dir)
@@ -143,43 +142,55 @@ def TrainTestSplit(dataDict, labelDict, splitParams):
     return split_dict
 
 
-def prepare(kmeans, data, prepareParams):
-    histograms_vector = []  # defining a vector
-    for img in data:
-        sift = cv2.xfeatures2d.SIFT_create()  # creating sifts
-        step_size = prepareParams['step_size']  # Taking the step size from the params
-        kp = [cv2.KeyPoint(x, y, step_size) for y in range(0, img.shape[0], step_size) for x in
-              range(0, img.shape[1], step_size)]  # computing keypoints
-        points, sifts = sift.compute(img, kp)  # computing sifts from key points
-        img_predicts = kmeans.predict(sifts)  # computing k-means predictions for the computed sifts
-        img_hist, bin_size = np.histogram(img_predicts, bins=prepareParams['bins'])  # histograms for each sift bins parameter.
-        normalized_hist = img_hist / sum(img_hist)
-        histograms_vector.append(normalized_hist)  # add the histogram to histograms vector
+def prepare(data, prepareParams):
+    siftDict = {}
+    sift = cv2.xfeatures2d.SIFT_create()  # Initiate the SIFT object that creates sifts
 
-    return histograms_vector
+    i = 0
+    for picClass in data:
+        sift_list = []
+
+        for img in picClass: # img is a (250,250) array
+            step_size = prepareParams['step_size']  # Taking the step size from the params
+            kp = [cv2.KeyPoint(x, y, step_size) for y in range(0, img.shape[0], step_size)
+                                                for x in range(0, img.shape[1], step_size)]  # computing keypoints
+
+            keypoints, img_sift = sift.compute(img, kp)  # computing sifts from key points
+            sift_list += [img_sift] #append the feature representation of the image to the output vector
+
+        siftDict[f'{i}'] = sift_list # {'0': list of 43 sifts, '1': list of 50 sifts, ..., '8': list of 50 sifts}
+        i += 1
+
+        # img_predicts = kmeans.predict(sifts)  # computing k-means predictions for the computed sifts
+        # img_hist, bin_size = np.histogram(img_predicts, bins=prepareParams['bins'])  # histograms for each sift bins parameter.
+        # normalized_hist = img_hist / sum(img_hist)
+        # histograms_vector.append(normalized_hist)  # add the histogram to histograms vector
+
+    return siftDict
 
 
-def train_kmeans(data, trainParams):
+def train_kmeans(siftDict, trainData, trainParams):
     print('Begin Kmeans training')
 
-    sift_vec = []  # define a list of sift
-    for img in data:
-        sift = cv2.xfeatures2d.SIFT_create()  # Creating Sifts
-        step_size = trainParams['step_size']  # use the step size as defined in params
-        kp = [cv2.KeyPoint(x, y, step_size) for y in range(0, img.shape[0], step_size) for x in
-              range(0, img.shape[1], step_size)]  # compute key points
-        points, sifts = sift.compute(img, kp)  # computing the sifts from the keypoints.
-        sift_vec.append(sifts)  # sift_vec: array of all the sifts.
+    cluster_num = trainParams["clusters"]
 
-    # transfer the list to np.array
-    all_sifts_array = list(sift_vec[0])
-    for value in sift_vec[1:]:
-        all_sifts_array = np.append(all_sifts_array, value, axis=0)
-    # compute and return k_means
-    model = MiniBatchKMeans(n_clusters=trainParams["clusters"], random_state=42,
-                            batch_size=trainParams['clusters'] * 4)  # Kmenas model parameters - TODO: need to check in hyperparameters tuning
-    kmeans = model.fit(all_sifts_array)  # Fitting the moddel on SIFT
-    print('Kmeans trained')
+    sift_vec = []  # define a list of sift
+
+    for picClass, imgs_sift_list in siftDict.items():
+        for img_sift in imgs_sift_list:
+            sift_vec.append(img_sift)  # sift_vec: array of all the sifts.
+
+            # transfer the list to np.array
+            all_sifts_array = list(sift_vec[0])
+            for value in sift_vec[1:]:
+                all_sifts_array = np.append(all_sifts_array, value, axis=0)
+
+            # compute and return k_means
+            model = MiniBatchKMeans(n_clusters=cluster_num, random_state=42,
+                                    batch_size=cluster_num * 4)  # Kmenas model parameters - TODO: need to check in hyperparameters tuning
+            kmeans = model.fit(all_sifts_array)  # Fitting the moddel on SIFT
+
+            print('Kmeans trained')
 
     return kmeans
 
@@ -190,15 +201,16 @@ if __name__ == '__main__':
 
     np.random.seed(0)
 
-    # pickle_caltech101_images(Params['Data'])
+    pickle_caltech101_images(Params['Data'])
 
-    DandL = GetData(Params["Data"])
+    # DandL = GetData(Params["Data"])
+    #
+    # SplitData = TrainTestSplit(DandL["Data"], DandL["Labels"], Params["Split"])
+    #
+    # TrainDataRep = prepare(SplitData["Train"]['Data'], Params["Prepare"])
 
-    SplitData = TrainTestSplit(DandL["Data"], DandL["Labels"], Params["Split"])
+    # kmeans_model = train_kmeans(TrainDataRep, SplitData["Train"]['Data'], Params["Train"])
 
-    kmeans_model = train_kmeans(SplitData["Train"]['Data'], Params["Train"])
-
-    TrainDataRep = prepare(kmeans_model, SplitData["Train"]['Data'], Params["Prepare"])
 
 
 
