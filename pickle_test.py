@@ -183,27 +183,33 @@ def train_kmeans(siftDict, trainData, trainParams):
     all_sifts = np.empty((0, len(siftDict['0'][0])), int)
 
 
-    for picClass, imgs_sift_list in tqdm(siftDict.items(), desc="kmeans training classes"):
+    for picClass, imgs_sift_list in tqdm(siftDict.items(), desc="Training kmeans model"):
 
         for img_sift in imgs_sift_list:
-            sift_arr = np.array([img_sift])
-            # each sift is a (1, 80,000) number  vector
-            all_sifts = np.append(all_sifts, sift_arr, axis=0) # sift_vec: array of all the sifts. array (625, 128)
-            # I think its 25x25 keypoints per image, 128 directions per keypoint
+            sift_arr = np.array([img_sift]) # each sift is a (1, 80,000) number  vector
 
-        # # transfer the list to np.array
-        # all_sifts_array = list(all_sifts[0])
-        # for value in all_sifts[1:]:
-        # all_sifts_array = np.append(all_sifts_array, [value], axis=0)
+            all_sifts = np.append(all_sifts, sift_arr, axis=0) # sift_vec: array of all the sifts. array (625, 128)
+                                                    # I think its 25x25 keypoints per image, 128 directions per keypoint
 
     # compute and return k_means
     model = MiniBatchKMeans(n_clusters=cluster_num, random_state=42,
-                            batch_size=cluster_num * 4)  # Kmenas model parameters - TODO: need to check in hyperparameters tuning
-    kmeans = model.fit(all_sifts)  # Fitting the moddel on SIFT
+                            batch_size=cluster_num * 4).fit(all_sifts)  # Kmenas model parameters - TODO: need to check in hyperparameters tuning
 
-    print('Kmeans trained')
+    return model
 
-    return kmeans
+
+def Test(siftDict, model):
+
+    all_sifts = np.empty((0, len(siftDict['0'][0])), int)
+
+
+    for picClass, imgs_sift_list in tqdm(siftDict.items(), desc="Testing kmeans model"):
+        for img_sift in imgs_sift_list:
+            sift_arr = np.array([img_sift])
+            all_sifts = np.append(all_sifts, sift_arr, axis=0)
+
+            prediction = model.predict(img_sift)
+            # TODO compare prediction with label
 
 
 if __name__ == '__main__':
@@ -215,14 +221,15 @@ if __name__ == '__main__':
     # pickle_caltech101_images(Params['Data'])
 
     DandL = GetData(Params["Data"])
-
     SplitData = TrainTestSplit(DandL["Data"], DandL["Labels"], Params["Split"])
 
     TrainDataRep = prepare(SplitData["Train"]['Data'], Params["Prepare"])
-
     kmeans_model = train_kmeans(TrainDataRep, SplitData["Train"]['Data'], Params["Train"])
 
+    print("Finished training model.\nBegin testing:\n\n")
 
+    TestDataRep = prepare(SplitData["Test"]['Data'], Params["Prepare"])
+    # Results = Test(TestDataRep, kmeans_model)
 
 
 
