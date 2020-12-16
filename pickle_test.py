@@ -6,6 +6,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.svm import SVC
 import pandas as pd
+from tqdm import tqdm
+
 
 
 def GetDefaultParameters():  # to add more parameters
@@ -66,7 +68,7 @@ def pickle_caltech101_images(dataParams):
     i = 0
     # endregion
 
-    for dir in top_folder:
+    for dir in tqdm(top_folder, desc="Caltech 101 classes"):
         dir_path = os.path.join(data_path, dir)
         pic_list = os.listdir(dir_path)
         for pic in pic_list:
@@ -123,7 +125,7 @@ def TrainTestSplit(dataDict, labelDict, splitParams):
     images_list = []
     labels_list = []
 
-    for classNum in dataDict.keys(): #iterates over all classes [1,101]
+    for classNum in tqdm(dataDict.keys(), desc="Split train and test sets"): #iterates over all classes [1,101]
         if classNum in class_indices:
             data = dataDict[classNum] # array of pictures with dimensions [N, SIZE, SIZE]
             labels = labelDict[classNum] # array with dimensions [N, 1]
@@ -147,7 +149,7 @@ def prepare(data, prepareParams):
     sift = cv2.xfeatures2d.SIFT_create()  # Initiate the SIFT object that creates sifts
 
     i = 0
-    for picClass in data:
+    for picClass in tqdm(data, desc="Prepare class SIFTS"):
         sift_list = []
 
         for img in picClass: # img is a (250,250) array
@@ -156,7 +158,11 @@ def prepare(data, prepareParams):
                                                 for x in range(0, img.shape[1], step_size)]  # computing keypoints
 
             keypoints, img_sift = sift.compute(img, kp)  # computing sifts from key points
-            sift_list += [img_sift] #append the feature representation of the image to the output vector
+
+            sift_array = np.array(img_sift)  # convert to array
+            flat_sift_arr = sift_array.flatten() #flatten to 1D instead of 625x128
+
+            sift_list += [flat_sift_arr] #append the feature representation of the image to the output vector
 
         siftDict[f'{i}'] = sift_list # {'0': list of 43 sifts, '1': list of 50 sifts, ..., '8': list of 50 sifts}
         i += 1
@@ -170,27 +176,32 @@ def prepare(data, prepareParams):
 
 
 def train_kmeans(siftDict, trainData, trainParams):
-    print('Begin Kmeans training')
 
     cluster_num = trainParams["clusters"]
 
-    sift_vec = []  # define a list of sift
 
-    for picClass, imgs_sift_list in siftDict.items():
+    all_sifts = np.empty((0, len(siftDict['0'][0])), int)
+
+
+    for picClass, imgs_sift_list in tqdm(siftDict.items(), desc="kmeans training classes"):
+
         for img_sift in imgs_sift_list:
-            sift_vec.append(img_sift)  # sift_vec: array of all the sifts.
+            sift_arr = np.array([img_sift])
+            # each sift is a (1, 80,000) number  vector
+            all_sifts = np.append(all_sifts, sift_arr, axis=0) # sift_vec: array of all the sifts. array (625, 128)
+            # I think its 25x25 keypoints per image, 128 directions per keypoint
 
-            # transfer the list to np.array
-            all_sifts_array = list(sift_vec[0])
-            for value in sift_vec[1:]:
-                all_sifts_array = np.append(all_sifts_array, value, axis=0)
+        # # transfer the list to np.array
+        # all_sifts_array = list(all_sifts[0])
+        # for value in all_sifts[1:]:
+        # all_sifts_array = np.append(all_sifts_array, [value], axis=0)
 
-            # compute and return k_means
-            model = MiniBatchKMeans(n_clusters=cluster_num, random_state=42,
-                                    batch_size=cluster_num * 4)  # Kmenas model parameters - TODO: need to check in hyperparameters tuning
-            kmeans = model.fit(all_sifts_array)  # Fitting the moddel on SIFT
+    # compute and return k_means
+    model = MiniBatchKMeans(n_clusters=cluster_num, random_state=42,
+                            batch_size=cluster_num * 4)  # Kmenas model parameters - TODO: need to check in hyperparameters tuning
+    kmeans = model.fit(all_sifts)  # Fitting the moddel on SIFT
 
-            print('Kmeans trained')
+    print('Kmeans trained')
 
     return kmeans
 
@@ -201,15 +212,15 @@ if __name__ == '__main__':
 
     np.random.seed(0)
 
-    pickle_caltech101_images(Params['Data'])
+    # pickle_caltech101_images(Params['Data'])
 
-    # DandL = GetData(Params["Data"])
-    #
-    # SplitData = TrainTestSplit(DandL["Data"], DandL["Labels"], Params["Split"])
-    #
-    # TrainDataRep = prepare(SplitData["Train"]['Data'], Params["Prepare"])
+    DandL = GetData(Params["Data"])
 
-    # kmeans_model = train_kmeans(TrainDataRep, SplitData["Train"]['Data'], Params["Train"])
+    SplitData = TrainTestSplit(DandL["Data"], DandL["Labels"], Params["Split"])
+
+    TrainDataRep = prepare(SplitData["Train"]['Data'], Params["Prepare"])
+
+    kmeans_model = train_kmeans(TrainDataRep, SplitData["Train"]['Data'], Params["Train"])
 
 
 
