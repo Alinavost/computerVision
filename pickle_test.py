@@ -5,16 +5,22 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.svm import SVC
-import pandas as pd
+from sklearn.svm import LinearSVC
 from tqdm import tqdm
-
+import itertools
+from sklearn.multiclass import OneVsRestClassifier
+import pandas as pd
+from sklearn.preprocessing import scale
 
 
 def GetDefaultParameters():  # to add more parameters
     # data_path = r"C:\Users\Alina\OneDrive\Desktop\Studies\Learning, representation, and Computer Vision\Homework\Task 1\101_ObjectCategories"
     # pickle_file_path = r'C:\Users\Alina\PycharmProjects\CVCourseT1\data.pkl'
-    data_path = r"C:\Users\razdo\Documents\_Dor\Second Degree documents\Courses\Semester 1\Learning, representation, and Computer Vision\Homework\Task 1 misc\101_ObjectCategories"
-    pickle_file_path = r"C:\Users\razdo\Documents\_Dor\Second Degree documents\Courses\Semester 1\Learning, representation, and Computer Vision\Homework\Task 1 misc\data.pkl"
+    dir_path = r"C:\Users\razdo\Documents\_Dor\Second Degree documents\Courses\Semester 1\Learning, representation, and Computer Vision\Homework\Task 1 misc"
+    data_path = os.path.join(dir_path, "101_ObjectCategories")
+    data_pickle_file_path = os.path.join(dir_path, "data.pkl")
+    kmeans_pickle_file_path = os.path.join(dir_path, "kmeans.pkl")
+    SVM_pickle_file_path = os.path.join(dir_path, "SVM.pkl")
 
     class_indices = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     image_size = (150, 150)
@@ -28,12 +34,12 @@ def GetDefaultParameters():  # to add more parameters
     bins = clusters
     validate = False
 
-    parameters = {"Data": {'CalTechData': data_path, 'PickleData': pickle_file_path, "image_size": image_size},
-                  "Prepare": {"step_size": step_size, "bins": bins},
-                  "Train": {"step_size": step_size, "clusters": clusters},
+    parameters = {"Data": {'CalTechData': data_path, 'data_pickle_file_path': data_pickle_file_path, "image_size": image_size},
+                  "Prepare": {"step_size": step_size, "bins": bins,  "clusters": clusters, "kmeans_pickle_file_path": kmeans_pickle_file_path},
+                  "Train": {"svm_c": svm_c, "SVM_pickle_file_path": SVM_pickle_file_path},
                   "Split": {'split_ratio': split_ratio, 'class_indices': class_indices},
+
                   "validate": validate,
-                  "svm_c": svm_c,
                   "kernel": kernel,
                   "gamma": gamma,
                   'degree': degree}
@@ -101,10 +107,9 @@ def pickle_caltech101_images(dataParams):
     print("finished pickling")
 
 
-def GetData(params):
-    pickle_path = params['PickleData']
+def GetData(pickle_file_path):
 
-    file = open(pickle_path, 'rb')
+    file = open(pickle_file_path, 'rb')
     dataDict = pickle.load(file)
     file.close()
 
@@ -122,80 +127,124 @@ def TrainTestSplit(dataDict, labelDict, splitParams):
     split_ratio = splitParams['split_ratio']
     class_indices = splitParams['class_indices']
 
-    images_list = []
-    labels_list = []
+    X_train_all = []
+    X_test_all = []
+    y_train_all = []
+    y_test_all = []
 
-    for classNum in tqdm(dataDict.keys(), desc="Split train and test sets"): #iterates over all classes [1,101]
+    for classNum in dataDict.keys(): #iterates over all classes [1,101]
+
         if classNum in class_indices:
             data = dataDict[classNum] # array of pictures with dimensions [N, SIZE, SIZE]
             labels = labelDict[classNum] # array with dimensions [N, 1]
-            N = data.shape[0]  # depends on number of pictures in class, number between [32, 50]
 
-            # print(f"Class pictures array size: {data.shape},\tclass label array size: {labels.shape}")
+            N = data.shape[0]  # depends on number of pictures in class, number between [32, 50]
             tst_size = int(0.5 * N)  # this always outputs half of N, rounded down TODO: to put it outside the loop. it's override the N again and again.
+            # print(f"Class pictures array size: {data.shape},\tclass label array size: {labels.shape}")
             # print(f"Total class pictures: {N}\n\tTraining: {N - tst_size}\n\tTest: {tst_size}\n")
 
-            images_list.append(data)
-            labels_list.append(labels)
+            images_list = []
+            labels_list = []
 
-    X_train, X_test, y_train, y_test = train_test_split(images_list, labels_list, test_size=split_ratio, shuffle=False)
-    split_dict = {"Train": {'Data': X_train, 'Labels': y_train}, "Test": {'Data': X_test, 'Labels': y_test}}
+            for i in range(len(data)):
+                images_list.append(data[i])
+                labels_list.append(labels[i])
+
+            X_train, X_test, y_train, y_test = train_test_split(images_list, labels_list, test_size=split_ratio, shuffle=False)
+
+            X_train_all.append(X_train)
+            X_test_all.append(X_test)
+            y_train_all.append(y_train)
+            y_test_all.append(y_test)
+
+    X_train_all_flat = list(itertools.chain(*X_train_all))
+    X_test_all_flat = list(itertools.chain(*X_test_all))
+    y_train_all_flat = list(itertools.chain(*y_train_all))
+    y_test_all_flat = list(itertools.chain(*y_test_all))
+
+    split_dict = {"Train": {'Data': X_train_all_flat, 'Labels': y_train_all_flat}, "Test": {'Data': X_test_all_flat, 'Labels': y_test_all_flat}}
 
     return split_dict
 
 
-def prepare(data, prepareParams):
-    siftDict = {}
-    sift = cv2.xfeatures2d.SIFT_create()  # Initiate the SIFT object that creates sifts
+def prepare(images, labels, prepareParams):
+    sift_vec = []  # define a list of sift
+    sift = cv2.xfeatures2d.SIFT_create()  # Creating Sifts
 
-    i = 0
-    for picClass in tqdm(data, desc="Prepare class SIFTS"):
-        sift_list = []
+    for img in images:
+        step_size = prepareParams['step_size']  # use the step size as defined in params
+        kp = [cv2.KeyPoint(x, y, step_size) for y in range(0, img.shape[0], step_size) for x in
+              range(0, img.shape[1], step_size)]  # compute key points
+        points, sifts = sift.compute(img, kp)  # computing the sifsts from the keypoints.
+        sift_vec.append(sifts)  # sift_vec: array of all the sifsts.
 
-        for img in picClass: # img is a (250,250) array
-            step_size = prepareParams['step_size']  # Taking the step size from the params
-            kp = [cv2.KeyPoint(x, y, step_size) for y in range(0, img.shape[0], step_size)
-                                                for x in range(0, img.shape[1], step_size)]  # computing keypoints
-
-            keypoints, img_sift = sift.compute(img, kp)  # computing sifts from key points
-
-            sift_array = np.array(img_sift)  # convert to array
-            flat_sift_arr = sift_array.flatten() #flatten to 1D instead of 625x128
-
-            sift_list += [flat_sift_arr] #append the feature representation of the image to the output vector
-
-        siftDict[f'{i}'] = sift_list # {'0': list of 43 sifts, '1': list of 50 sifts, ..., '8': list of 50 sifts}
-        i += 1
-
-        # img_predicts = kmeans.predict(sifts)  # computing k-means predictions for the computed sifts
-        # img_hist, bin_size = np.histogram(img_predicts, bins=prepareParams['bins'])  # histograms for each sift bins parameter.
-        # normalized_hist = img_hist / sum(img_hist)
-        # histograms_vector.append(normalized_hist)  # add the histogram to histograms vector
-
-    return siftDict
-
-
-def train_kmeans(siftDict, trainData, trainParams):
-
-    cluster_num = trainParams["clusters"]
-
-
-    all_sifts = np.empty((0, len(siftDict['0'][0])), int)
-
-
-    for picClass, imgs_sift_list in tqdm(siftDict.items(), desc="Training kmeans model"):
-
-        for img_sift in imgs_sift_list:
-            sift_arr = np.array([img_sift]) # each sift is a (1, 80,000) number  vector
-
-            all_sifts = np.append(all_sifts, sift_arr, axis=0) # sift_vec: array of all the sifts. array (625, 128)
-                                                    # I think its 25x25 keypoints per image, 128 directions per keypoint
-
+    # sift vec has 385 images x 625 keypoints per image x 128 features per keypoint
+    # This next line creates one long list with all sifts in it of all images
+    alll_sifts = [keypoint for imgFeatures in sift_vec for keypoint in imgFeatures] # imgFeatures is a 625x128 list
+                                                                                    # keypoint is a 1x128 vector
     # compute and return k_means
-    model = MiniBatchKMeans(n_clusters=cluster_num, random_state=42,
-                            batch_size=cluster_num * 4).fit(all_sifts)  # Kmenas model parameters - TODO: need to check in hyperparameters tuning
+    model = MiniBatchKMeans(n_clusters=prepareParams["clusters"], random_state=42,
+                            batch_size=prepareParams['clusters'] * 4)  # Kmenas model parameters - TODO: need to check in hyperparameters tuning
+    kmeans = model.fit(alll_sifts)  # Fitting the model on SIFT
+    print('Kmeans trained')
 
-    return model
+    file = open(prepareParams['kmeans_pickle_file_path'], 'wb')
+    pickle.dump([kmeans, sift_vec], file, protocol=2)
+    file.close()
+    print("finished pickling kmeans")
+    return kmeans, sift_vec
+
+
+def prepare2(kmeans, data, prepareParams):
+    histograms_vector = []  # defining a vector
+    sift = cv2.xfeatures2d.SIFT_create()  # creating sifts
+
+    for img in data:
+        step_size = prepareParams['step_size']  # Taking the step size from the params
+        kp = [cv2.KeyPoint(x, y, step_size) for y in range(0, img.shape[0], step_size)
+              for x in range(0, img.shape[1], step_size)]  # computing keypoints
+        points, sifts = sift.compute(img, kp)  # computing sifts from key points
+
+        sifts = np.float64(sifts)
+
+        img_predicts = kmeans.predict(sifts)  # computing k-means predictions for the computed sifts
+        img_hist, bin_size = np.histogram(img_predicts, bins=prepareParams['bins'])  # histograms for each sift bins parameter.
+        normalized_hist = img_hist / sum(img_hist)
+        histograms_vector.append(normalized_hist)  # add the histogram to histograms vector
+
+    return histograms_vector
+
+
+def train(data, labels, trainParams):
+    '''
+    Train the model with SVM
+    :param data: the train data
+    :param labels: the train labels
+    :param params:dictionary of parameters
+    :return: the computed SVM of the trained data
+    '''
+
+    # svm = LinearSVC(C=trainParams['svm_c'],  multi_class='ovr', random_state=42) # define the SVM parameters
+    # Model = OneVsRestClassifier(svm.fit(data, labels))  # fitting the SVM on the data
+
+    new_x = []
+
+    for img in data:
+        flat_im = [pix for row in img for pix in row]
+        new_x.append(flat_im)
+
+    new_x = np.array(new_x)
+    new_y = np.array(labels)
+
+    Model = OneVsRestClassifier(SVC()).fit(new_x, new_y)  # fitting the SVM on the data
+    print('SVM Trained')
+
+    file = open(trainParams['SVM_pickle_file_path'], 'wb')
+    pickle.dump(Model, file, protocol=2)
+    file.close()
+    print("finished pickling SVM")
+
+    return Model
 
 
 def Test(siftDict, model):
@@ -211,25 +260,24 @@ def Test(siftDict, model):
             prediction = model.predict(img_sift)
             # TODO compare prediction with label
 
-
 if __name__ == '__main__':
-
     Params = GetDefaultParameters()
 
     np.random.seed(0)
 
     # pickle_caltech101_images(Params['Data'])
 
-    DandL = GetData(Params["Data"])
-    SplitData = TrainTestSplit(DandL["Data"], DandL["Labels"], Params["Split"])
+    DandL = GetData(Params["Data"]['data_pickle_file_path'])
 
-    TrainDataRep = prepare(SplitData["Train"]['Data'], Params["Prepare"])
-    kmeans_model = train_kmeans(TrainDataRep, SplitData["Train"]['Data'], Params["Train"])
+    splitdict = TrainTestSplit(DandL["Data"], DandL["Labels"], Params["Split"])
 
-    print("Finished training model.\nBegin testing:\n\n")
+    # kmeans, TrainDataSifts = prepare(splitdict['Train']['Data'], splitdict['Train']['Labels'], Params["Prepare"])
+    kmeans,TrainDataSifts = GetData(Params["Prepare"]['kmeans_pickle_file_path'])
 
-    TestDataRep = prepare(SplitData["Test"]['Data'], Params["Prepare"])
-    # Results = Test(TestDataRep, kmeans_model)
+    SVM_model = train(TrainDataSifts, splitdict['Train']['Labels'], Params["Train"])
+    # SVM_model = GetData(Params["Data"]['SVMPickleData'])
 
+    # Test()
+    # histogram_vec = prepare2(kmeans_model, splitdict['Train']['Data'], Params["Prepare"])
 
 
