@@ -13,13 +13,15 @@ import pandas as pd
 from sklearn.preprocessing import scale
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import confusion_matrix
-from iteration_utilities import unique_everseen
+from more_itertools import unique_everseen
+import seaborn as sns
+import matplotlib.pyplot as plt
 
 
 def GetDefaultParameters():  # to add more parameters
-    # data_path = r"C:\Users\Alina\OneDrive\Desktop\Studies\Learning, representation, and Computer Vision\Homework\Task 1\101_ObjectCategories"
+    dir_path = r"C:\Users\Alina\OneDrive\Desktop\Studies\Learning, representation, and Computer Vision\Homework\Task 1"
     # pickle_file_path = r'C:\Users\Alina\PycharmProjects\CVCourseT1\data.pkl'
-    dir_path = r"C:\Users\razdo\Documents\_Dor\Second Degree documents\Courses\Semester 1\Learning, representation, and Computer Vision\Homework\Task 1 misc"
+    #dir_path = r"C:\Users\razdo\Documents\_Dor\Second Degree documents\Courses\Semester 1\Learning, representation, and Computer Vision\Homework\Task 1 misc"
     data_path = os.path.join(dir_path, "101_ObjectCategories")
     data_pickle_file_path = os.path.join(dir_path, "data.pkl")
     kmeans_pickle_file_path = os.path.join(dir_path, "kmeans.pkl")
@@ -263,28 +265,41 @@ def train(data, labels, trainParams):
     return Model
 
 
-def Test(data, labels, trainParams):
+def Test(model,test_data):
 
-    SVM_model = GetData(trainParams['SVM_pickle_file_path'])
+    predictions = model.predict(test_data) #computing the predictions from the model
+    probabilities = model.predict_proba(test_data) # computing the probabilities
 
-    predict_probabilities = SVM_model.predict_proba(data)
-    predicts = SVM_model.predict(data)
-    evaluate(predicts, predict_probabilities, labels, trainParams)
-
+    return predictions,probabilities
 
 
-def evaluate(predicts, probabilities, labels, params):
 
-    error = 1 - accuracy_score(predicts, labels) # Compute error
-    accuracy_score_of_all = accuracy_score(predicts, labels)
+def evaluate(predicts, real_labels):
 
-    print(labels)
+    error = 1 - accuracy_score(predicts, real_labels) # Compute error
+    accuracy_score_of_all = accuracy_score(predicts, real_labels)
+
+    print (error)
+    print(real_labels)
     print(predicts)
     print(f"\nTotal accuracy of predictions: {accuracy_score_of_all}")
 
 
-    cnf_mat = confusion_matrix(labels, predicts, list(unique_everseen(labels)))  # Create confusion matrix
+    cnf_mat = confusion_matrix(real_labels, predicts, list(unique_everseen(real_labels)))  # Create confusion matrix
     print(cnf_mat)
+
+    df_cm = pd.DataFrame(cnf_mat, index=list(unique_everseen(real_labels)), columns=list(unique_everseen(real_labels)),)
+    col_sum = df_cm.sum(axis=1)
+    df_cm = df_cm.div(col_sum,axis = 0)
+    plt.figure(figsize=(20,20))
+    heatmap = sns.heatmap(df_cm, annot=True)
+    heatmap.yaxis.set_ticklabels(heatmap.yaxis.get_ticklabels(), rotation=0, ha='right', fontsize=8)
+    heatmap.xaxis.set_ticklabels(heatmap.xaxis.get_ticklabels(), rotation=45, ha='right', fontsize=8)
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    plt.title("Confusion Matrix, Normalized")
+    plt.show()
+    return error,cnf_mat
 
 if __name__ == '__main__':
     Params = GetDefaultParameters()
@@ -304,6 +319,11 @@ if __name__ == '__main__':
     histogram_vec = prepare2(kmeans, splitdict['Train']['Data'], Params["Prepare"])
 
     # print("Training SVM model")
-    # SVM_model = train(histogram_vec, splitdict['Train']['Labels'], Params["Train"])
+    SVM_model = train(histogram_vec, splitdict['Train']['Labels'], Params["Train"])
 
-    Test(histogram_vec, splitdict['Train']['Labels'], Params["Test"])
+    TestDataRep = prepare2(kmeans, splitdict['Test']['Data'], Params["Prepare"])
+
+    Results, probabilities = Test(SVM_model, TestDataRep)
+
+    Error, conf_mat = evaluate(Results, splitdict['Test']['Labels'])
+
