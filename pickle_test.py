@@ -11,6 +11,9 @@ import itertools
 from sklearn.multiclass import OneVsRestClassifier
 import pandas as pd
 from sklearn.preprocessing import scale
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import confusion_matrix
+from iteration_utilities import unique_everseen
 
 
 def GetDefaultParameters():  # to add more parameters
@@ -22,6 +25,7 @@ def GetDefaultParameters():  # to add more parameters
     kmeans_pickle_file_path = os.path.join(dir_path, "kmeans.pkl")
     SVM_pickle_file_path = os.path.join(dir_path, "SVM.pkl")
 
+    Use_cache = True
     class_indices = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     image_size = (150, 150)
     split_ratio = 0.2
@@ -33,12 +37,11 @@ def GetDefaultParameters():  # to add more parameters
     step_size = 6
     bins = clusters
     validate = False
-
-    parameters = {"Data": {'CalTechData': data_path, 'data_pickle_file_path': data_pickle_file_path, "image_size": image_size},
+    parameters = {"Data": {'CalTechData': data_path, 'data_pickle_file_path': data_pickle_file_path, "image_size": image_size, "Use_cache": Use_cache},
                   "Prepare": {"step_size": step_size, "bins": bins,  "clusters": clusters, "kmeans_pickle_file_path": kmeans_pickle_file_path},
-                  "Train": {"svm_c": svm_c, "SVM_pickle_file_path": SVM_pickle_file_path},
+                  "Train": {"svm_c": svm_c, "SVM_pickle_file_path": SVM_pickle_file_path, "Use_cache": Use_cache},
                   "Split": {'split_ratio': split_ratio, 'class_indices': class_indices},
-
+                  "Test" : {"SVM_pickle_file_path": SVM_pickle_file_path},
                   "validate": validate,
                   "kernel": kernel,
                   "gamma": gamma,
@@ -57,11 +60,15 @@ def pickle_caltech101_images(dataParams):
 
         """
 
-    print("starting pickling")
+    if dataParams['Use_cache'] == True:
+        DandL = GetData(dataParams['data_pickle_file_path'])
+        return DandL
+
+    print("starting pickling Caltech data")
 
     # region variables and constants
     data_path = dataParams['CalTechData']
-    pickle_path = dataParams['PickleData']
+    pickle_path = dataParams['data_pickle_file_path']
     dsize = dataParams['image_size'] # new size
 
     top_folder = os.listdir(data_path)
@@ -104,7 +111,8 @@ def pickle_caltech101_images(dataParams):
     pickle.dump(dataDict, file, protocol=2) # dictionary is of type { Data: {1: data1, 2: data2, ...},
                                                                    #  Labels: {1: labels1, 2: labels2, ...} }
     file.close()
-    print("finished pickling")
+    print("finished pickling Caltech data")
+    return dataDict
 
 
 def GetData(pickle_file_path):
@@ -186,12 +194,12 @@ def prepare(images, labels, prepareParams):
     model = MiniBatchKMeans(n_clusters=prepareParams["clusters"], random_state=42,
                             batch_size=prepareParams['clusters'] * 4)  # Kmenas model parameters - TODO: need to check in hyperparameters tuning
     kmeans = model.fit(alll_sifts)  # Fitting the model on SIFT
-    print('Kmeans trained')
+    # print('Kmeans trained')
 
     file = open(prepareParams['kmeans_pickle_file_path'], 'wb')
     pickle.dump([kmeans, sift_vec], file, protocol=2)
     file.close()
-    print("finished pickling kmeans")
+    # print("finished pickling kmeans")
     return kmeans, sift_vec
 
 
@@ -226,18 +234,26 @@ def train(data, labels, trainParams):
 
     # svm = LinearSVC(C=trainParams['svm_c'],  multi_class='ovr', random_state=42) # define the SVM parameters
     # Model = OneVsRestClassifier(svm.fit(data, labels))  # fitting the SVM on the data
+    # if trainParams['Use_cache'] == True:
+    #     SVM_model = GetData(trainParams['SVM_pickle_file_path'])
+    #     return SVM_model
 
-    new_x = []
+    # new_x = []
 
-    for img in data:
-        flat_im = [pix for row in img for pix in row]
-        new_x.append(flat_im)
+    # for img in data:
+    #     flat_im = [pix for row in img for pix in row]
+    #     new_x.append(flat_im)
 
-    new_x = np.array(new_x)
-    new_y = np.array(labels)
+    # new_x = np.array(new_x)
+    # new_y = np.array(labels)
 
-    Model = OneVsRestClassifier(SVC()).fit(new_x, new_y)  # fitting the SVM on the data
+    data = np.array(data)
+    labels = np.array(labels)
+
+    Model = OneVsRestClassifier(SVC(C=1.0, kernel='rbf', gamma='scale', probability=True)).fit(data, labels)  # fitting the SVM on the data
     print('SVM Trained')
+
+
 
     file = open(trainParams['SVM_pickle_file_path'], 'wb')
     pickle.dump(Model, file, protocol=2)
@@ -247,37 +263,47 @@ def train(data, labels, trainParams):
     return Model
 
 
-def Test(siftDict, model):
+def Test(data, labels, trainParams):
 
-    all_sifts = np.empty((0, len(siftDict['0'][0])), int)
+    SVM_model = GetData(trainParams['SVM_pickle_file_path'])
+
+    predict_probabilities = SVM_model.predict_proba(data)
+    predicts = SVM_model.predict(data)
+    evaluate(predicts, predict_probabilities, labels, trainParams)
 
 
-    for picClass, imgs_sift_list in tqdm(siftDict.items(), desc="Testing kmeans model"):
-        for img_sift in imgs_sift_list:
-            sift_arr = np.array([img_sift])
-            all_sifts = np.append(all_sifts, sift_arr, axis=0)
 
-            prediction = model.predict(img_sift)
-            # TODO compare prediction with label
+def evaluate(predicts, probabilities, labels, params):
+
+    error = 1 - accuracy_score(predicts, labels) # Compute error
+    accuracy_score_of_all = accuracy_score(predicts, labels)
+
+    print(labels)
+    print(predicts)
+    print(f"\nTotal accuracy of predictions: {accuracy_score_of_all}")
+
+
+    cnf_mat = confusion_matrix(labels, predicts, list(unique_everseen(labels)))  # Create confusion matrix
+    print(cnf_mat)
 
 if __name__ == '__main__':
     Params = GetDefaultParameters()
 
     np.random.seed(0)
 
-    # pickle_caltech101_images(Params['Data'])
+    print("Getting data and labels")
+    DandL = pickle_caltech101_images(Params['Data'])
 
-    DandL = GetData(Params["Data"]['data_pickle_file_path'])
-
+    print("Splitting train and test sets")
     splitdict = TrainTestSplit(DandL["Data"], DandL["Labels"], Params["Split"])
 
-    # kmeans, TrainDataSifts = prepare(splitdict['Train']['Data'], splitdict['Train']['Labels'], Params["Prepare"])
-    kmeans,TrainDataSifts = GetData(Params["Prepare"]['kmeans_pickle_file_path'])
+    print("Creating SIFTS")
+    kmeans, TrainDataSifts = prepare(splitdict['Train']['Data'], splitdict['Train']['Labels'], Params["Prepare"])
 
-    SVM_model = train(TrainDataSifts, splitdict['Train']['Labels'], Params["Train"])
-    # SVM_model = GetData(Params["Data"]['SVMPickleData'])
+    print("Creating histograms for images using kmeans")
+    histogram_vec = prepare2(kmeans, splitdict['Train']['Data'], Params["Prepare"])
 
-    # Test()
-    # histogram_vec = prepare2(kmeans_model, splitdict['Train']['Data'], Params["Prepare"])
+    # print("Training SVM model")
+    # SVM_model = train(histogram_vec, splitdict['Train']['Labels'], Params["Train"])
 
-
+    Test(histogram_vec, splitdict['Train']['Labels'], Params["Test"])
