@@ -16,16 +16,17 @@ from sklearn.metrics import confusion_matrix
 from more_itertools import unique_everseen
 import seaborn as sns
 import matplotlib.pyplot as plt
-
+import inspect
 
 def GetDefaultParameters():  # to add more parameters
     dir_path = r"C:\Users\Alina\OneDrive\Desktop\Studies\Learning, representation, and Computer Vision\Homework\Task 1"
-    # pickle_file_path = r'C:\Users\Alina\PycharmProjects\CVCourseT1\data.pkl'
-    #dir_path = r"C:\Users\razdo\Documents\_Dor\Second Degree documents\Courses\Semester 1\Learning, representation, and Computer Vision\Homework\Task 1 misc"
+    dir_path = r"C:\Users\razdo\Documents\_Dor\Second Degree documents\Courses\Semester 1\Learning, representation, and Computer Vision\Homework\Task 1 misc"
+
     data_path = os.path.join(dir_path, "101_ObjectCategories")
     data_pickle_file_path = os.path.join(dir_path, "data.pkl")
     kmeans_pickle_file_path = os.path.join(dir_path, "kmeans.pkl")
     SVM_pickle_file_path = os.path.join(dir_path, "SVM.pkl")
+    Results_pickle_file_path = os.path.join(dir_path, "Results.pkl")
 
     Use_cache = True
     class_indices = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
@@ -39,14 +40,15 @@ def GetDefaultParameters():  # to add more parameters
     step_size = 6
     bins = clusters
     validate = False
+
     parameters = {"Data": {'CalTechData': data_path, 'data_pickle_file_path': data_pickle_file_path, "image_size": image_size, "Use_cache": Use_cache},
-                  "Prepare": {"step_size": step_size, "bins": bins,  "clusters": clusters, "kmeans_pickle_file_path": kmeans_pickle_file_path},
-                  "Train": {"svm_c": svm_c, "SVM_pickle_file_path": SVM_pickle_file_path, "Use_cache": Use_cache},
+                  "Kmeans": {"step_size": step_size, "clusters": clusters, "kmeans_pickle_file_path": kmeans_pickle_file_path},
+                  "Prepare": {"step_size": step_size, "bins": bins},
+                  "Train": {"svm_c": svm_c, "SVM_pickle_file_path": SVM_pickle_file_path, "Use_cache": Use_cache, "kernel": kernel, "gamma": gamma},
                   "Split": {'split_ratio': split_ratio, 'class_indices': class_indices},
                   "Test" : {"SVM_pickle_file_path": SVM_pickle_file_path},
+                  "Results" : {"Results_pickle_file_path": Results_pickle_file_path},
                   "validate": validate,
-                  "kernel": kernel,
-                  "gamma": gamma,
                   'degree': degree}
 
     return parameters
@@ -62,7 +64,10 @@ def pickle_caltech101_images(dataParams):
 
         """
 
-    if dataParams['Use_cache'] == True:
+    if dataParams['Use_cache'] == False:
+        DandL = GetData(dataParams['data_pickle_file_path'])
+        return DandL
+    else:
         DandL = GetData(dataParams['data_pickle_file_path'])
         return DandL
 
@@ -149,7 +154,7 @@ def TrainTestSplit(dataDict, labelDict, splitParams):
             labels = labelDict[classNum] # array with dimensions [N, 1]
 
             N = data.shape[0]  # depends on number of pictures in class, number between [32, 50]
-            tst_size = int(0.5 * N)  # this always outputs half of N, rounded down TODO: to put it outside the loop. it's override the N again and again.
+            tst_size = int(0.5 * N)  # this always outputs half of N, rounded down
             # print(f"Class pictures array size: {data.shape},\tclass label array size: {labels.shape}")
             # print(f"Total class pictures: {N}\n\tTraining: {N - tst_size}\n\tTest: {tst_size}\n")
 
@@ -160,7 +165,7 @@ def TrainTestSplit(dataDict, labelDict, splitParams):
                 images_list.append(data[i])
                 labels_list.append(labels[i])
 
-            X_train, X_test, y_train, y_test = train_test_split(images_list, labels_list, test_size=split_ratio, shuffle=False)
+            X_train, X_test, y_train, y_test = train_test_split(images_list, labels_list, test_size=tst_size, shuffle=False)
 
             X_train_all.append(X_train)
             X_test_all.append(X_test)
@@ -177,12 +182,12 @@ def TrainTestSplit(dataDict, labelDict, splitParams):
     return split_dict
 
 
-def prepare(images, labels, prepareParams):
+def TrainKmeans(images, KmeansParams):
     sift_vec = []  # define a list of sift
     sift = cv2.xfeatures2d.SIFT_create()  # Creating Sifts
 
     for img in images:
-        step_size = prepareParams['step_size']  # use the step size as defined in params
+        step_size = KmeansParams['step_size']  # use the step size as defined in params
         kp = [cv2.KeyPoint(x, y, step_size) for y in range(0, img.shape[0], step_size) for x in
               range(0, img.shape[1], step_size)]  # compute key points
         points, sifts = sift.compute(img, kp)  # computing the sifsts from the keypoints.
@@ -193,19 +198,16 @@ def prepare(images, labels, prepareParams):
     alll_sifts = [keypoint for imgFeatures in sift_vec for keypoint in imgFeatures] # imgFeatures is a 625x128 list
                                                                                     # keypoint is a 1x128 vector
     # compute and return k_means
-    model = MiniBatchKMeans(n_clusters=prepareParams["clusters"], random_state=42,
-                            batch_size=prepareParams['clusters'] * 4)  # Kmenas model parameters - TODO: need to check in hyperparameters tuning
+    model = MiniBatchKMeans(n_clusters=KmeansParams["clusters"], random_state=42,
+                            batch_size=KmeansParams['clusters'] * 4)  # Kmenas model parameters - TODO: need to check in hyperparameters tuning
+
     kmeans = model.fit(alll_sifts)  # Fitting the model on SIFT
-    # print('Kmeans trained')
+    print('Kmeans trained')
 
-    file = open(prepareParams['kmeans_pickle_file_path'], 'wb')
-    pickle.dump([kmeans, sift_vec], file, protocol=2)
-    file.close()
-    # print("finished pickling kmeans")
-    return kmeans, sift_vec
+    return kmeans
 
 
-def prepare2(kmeans, data, prepareParams):
+def Prepare(kmeans, data, prepareParams):
     histograms_vector = []  # defining a vector
     sift = cv2.xfeatures2d.SIFT_create()  # creating sifts
 
@@ -225,7 +227,7 @@ def prepare2(kmeans, data, prepareParams):
     return histograms_vector
 
 
-def train(data, labels, trainParams):
+def TrainModel(data, labels, trainParams):
     '''
     Train the model with SVM
     :param data: the train data
@@ -234,28 +236,11 @@ def train(data, labels, trainParams):
     :return: the computed SVM of the trained data
     '''
 
-    # svm = LinearSVC(C=trainParams['svm_c'],  multi_class='ovr', random_state=42) # define the SVM parameters
-    # Model = OneVsRestClassifier(svm.fit(data, labels))  # fitting the SVM on the data
-    # if trainParams['Use_cache'] == True:
-    #     SVM_model = GetData(trainParams['SVM_pickle_file_path'])
-    #     return SVM_model
-
-    # new_x = []
-
-    # for img in data:
-    #     flat_im = [pix for row in img for pix in row]
-    #     new_x.append(flat_im)
-
-    # new_x = np.array(new_x)
-    # new_y = np.array(labels)
-
     data = np.array(data)
     labels = np.array(labels)
 
-    Model = OneVsRestClassifier(SVC(C=1.0, kernel='rbf', gamma='scale', probability=True)).fit(data, labels)  # fitting the SVM on the data
+    Model = OneVsRestClassifier(SVC(C=trainParams['svm_c'], kernel=trainParams['kernel'], gamma=trainParams['gamma'], probability=True)).fit(data, labels)  # fitting the SVM on the data
     print('SVM Trained')
-
-
 
     file = open(trainParams['SVM_pickle_file_path'], 'wb')
     pickle.dump(Model, file, protocol=2)
@@ -265,7 +250,7 @@ def train(data, labels, trainParams):
     return Model
 
 
-def Test(model,test_data):
+def Test(model, test_data):
 
     predictions = model.predict(test_data) #computing the predictions from the model
     probabilities = model.predict_proba(test_data) # computing the probabilities
@@ -273,17 +258,12 @@ def Test(model,test_data):
     return predictions,probabilities
 
 
-
 def evaluate(predicts, real_labels):
 
     error = 1 - accuracy_score(predicts, real_labels) # Compute error
     accuracy_score_of_all = accuracy_score(predicts, real_labels)
 
-    print (error)
-    print(real_labels)
-    print(predicts)
     print(f"\nTotal accuracy of predictions: {accuracy_score_of_all}")
-
 
     cnf_mat = confusion_matrix(real_labels, predicts, list(unique_everseen(real_labels)))  # Create confusion matrix
     print(cnf_mat)
@@ -301,10 +281,8 @@ def evaluate(predicts, real_labels):
     plt.show()
     return error,cnf_mat
 
-if __name__ == '__main__':
-    Params = GetDefaultParameters()
 
-    np.random.seed(0)
+def Exp(params):
 
     print("Getting data and labels")
     DandL = pickle_caltech101_images(Params['Data'])
@@ -312,18 +290,54 @@ if __name__ == '__main__':
     print("Splitting train and test sets")
     splitdict = TrainTestSplit(DandL["Data"], DandL["Labels"], Params["Split"])
 
-    print("Creating SIFTS")
-    kmeans, TrainDataSifts = prepare(splitdict['Train']['Data'], splitdict['Train']['Labels'], Params["Prepare"])
+    print("Training kmeans using training images' Sifts")
+    kmeans = TrainKmeans(splitdict['Train']['Data'], Params["Kmeans"])
 
-    print("Creating histograms for images using kmeans")
-    histogram_vec = prepare2(kmeans, splitdict['Train']['Data'], Params["Prepare"])
+    print("Creating histograms for training set using kmeans")
+    TrainDataRep = Prepare(kmeans, splitdict['Train']['Data'], Params["Prepare"])
 
-    # print("Training SVM model")
-    SVM_model = train(histogram_vec, splitdict['Train']['Labels'], Params["Train"])
+    print("Training SVM model")
+    SVM_model = TrainModel(TrainDataRep, splitdict['Train']['Labels'], Params["Train"])
 
-    TestDataRep = prepare2(kmeans, splitdict['Test']['Data'], Params["Prepare"])
+    print("Creating histograms for test set using kmeans")
+    TestDataRep = Prepare(kmeans, splitdict['Test']['Data'], Params["Prepare"])
 
+    print("Showing results")
     Results, probabilities = Test(SVM_model, TestDataRep)
 
     Error, conf_mat = evaluate(Results, splitdict['Test']['Labels'])
+
+    file = open(params["Results"]['Results_pickle_file_path'], 'wb')
+    pickle.dump([Error, conf_mat], file, protocol=2)  # dictionary is of type { Data: {1: data1, 2: data2, ...},
+    file.close()
+
+    print(f"finished pickling {inspect.stack()[0][3]} results.")
+
+
+if __name__ == '__main__':
+    Params = GetDefaultParameters()
+
+    np.random.seed(0)
+
+    # Running experiment 1 with default parameters
+    Params["Data"]["image_size"] = (100, 100)
+
+    Params["Kmeans"]['Clusters'] = '50'
+
+    Exp(Params)
+
+    Params["Kmeans"]['Clusters'] = '30'
+    Params["Data"]["image_size"] = (300, 300)
+    # Params["Train"]['Kernel'] = 'linear'
+
+    Exp(Params)
+
+
+
+
+
+
+
+
+
 
